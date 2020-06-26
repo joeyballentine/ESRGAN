@@ -32,8 +32,12 @@ parser.add_argument('--alpha_boundary_offset', default=.2,
 args = parser.parse_args()
 
 model_chain = args.model.split('>')
-for model in model_chain:
-    if not os.path.exists('./models/' + model):
+for idx, model in enumerate(model_chain):
+    if os.path.exists(model):
+        pass
+    elif os.path.exists('./models/' + model):
+        model_chain[idx] = os.path.join('models', model)
+    else:
         print('Error: Model [{:s}] does not exist.'.format(model))
         sys.exit(1)
 
@@ -211,19 +215,18 @@ def process(img):
 # This code is a somewhat modified version of BlueAmulet's fork of ESRGAN by Xinntao
 
 
-def esrgan(imgs, model_name):
+def esrgan(imgs, model_path):
     global last_model, last_in_nc, last_out_nc, last_nf, last_nb, last_scale, model
     '''
     Runs ESRGAN on all the images passed in with the specified model
 
             Parameters:
                     imgs (array): The images to run ESRGAN on
-                    model_name (string): The model to use
+                    model_path (string): The model to use
 
             Returns:
                     rlts (array): The processed images
     '''
-    model_path = './models/' + model_name
     # torch.device('cpu' if args.cpu else 'cuda')
 
     if model_path != last_model:
@@ -251,10 +254,6 @@ def esrgan(imgs, model_name):
         upscale = 2 ** scale2
         in_nc = state_dict['model.0.weight'].shape[1]
         nf = state_dict['model.0.weight'].shape[0]
-
-        if 'conv_first.weight' in state_dict:
-            print('Error: Attempted to load a new-format model')
-            sys.exit(1)
 
         if in_nc != last_in_nc or out_nc != last_out_nc or nf != last_nf or nb != last_nb or upscale != last_scale:
             model = arch.RRDB_Net(in_nc, out_nc, nf, nb, gc=32, upscale=upscale, norm_type=None, act_type='leakyrelu',
@@ -295,28 +294,16 @@ def esrgan(imgs, model_name):
                 half_transparent = .5
                 half_transparent_lower_bound = args.alpha_threshold - args.alpha_boundary_offset
                 half_transparent_upper_bound = args.alpha_threshold + args.alpha_boundary_offset
-                rows = []
-                for a in alpha:
-                    row = []
-
-                    for alpha_val in a:
-                        if alpha_val < half_transparent_lower_bound:
-                            column = transparent
-                        elif alpha_val >= half_transparent_lower_bound and alpha_val <= half_transparent_upper_bound:
-                            column = half_transparent
-                        elif alpha_val > half_transparent_upper_bound:
-                            column = opaque
-                        else:
-                            column = opaque
-                        row.append(column)
-                    rows.append(row)
-                alpha = np.array(rows, np.float32)
+                alpha = np.where(alpha < half_transparent_lower_bound, transparent,
+                                 np.where(alpha <= half_transparent_upper_bound,
+                                 half_transparent, opaque))
 
             output = np.dstack((output1, alpha))
             shape = output1.shape
             divalpha = np.where(alpha < 1. / 510., 1, alpha)
             for c in range(shape[2]):
                 output[:, :, c] /= divalpha
+            output = np.clip(output, 0, 1)
         else:
             if img.ndim == 2:
                 img = np.tile(np.expand_dims(img, axis=2),
@@ -329,7 +316,7 @@ def esrgan(imgs, model_name):
                 img = np.dstack((img, np.full(img.shape[:-1], 1.)))
             output = process(img)
 
-        output = (output * 255.0).round()
+        output = (output * 255.).round()
 
         rlts.append(output)
     # torch.cuda.empty_cache()
@@ -364,8 +351,9 @@ last_nb = None
 last_scale = None
 model = None
 
-print('Model(s) {:s}. \nUpscaling...'.format(
-    ', '.join(model_chain) if len(model_chain) > 1 else model_chain[0]))
+print('Model{:s}: {:s}\nUpscaling...'.format(
+      's' if len(model_chain) > 1 else '',
+      ', '.join([os.path.splitext(os.path.basename(x))[0] for x in model_chain])))
 
 idx = 0
 for path in glob.glob(test_img_folder):
@@ -378,7 +366,7 @@ for path in glob.glob(test_img_folder):
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     # img = img * 1. / np.iinfo(img.dtype).max
 
-    for i in range(len(model_chain)):
+    for model_path in model_chain:
 
         img_height, img_width, img_channels = img.shape
         dim = args.tile_size
@@ -398,7 +386,7 @@ for path in glob.glob(test_img_folder):
         else:
             imgs = [img]
 
-        rlts, scale = esrgan(imgs, model_chain[i])
+        rlts, scale = esrgan(imgs, model_path)
 
         if do_split:
             rlt = merge(rlts, scale, overlap, img_height,
@@ -409,7 +397,6 @@ for path in glob.glob(test_img_folder):
         if args.seamless:
             rlt = crop_seamless(rlt, scale)
 
-        if len(model_chain) > 1:
-            img = rlt.astype('uint8')
+        img = rlt.astype('uint8')
 
     cv2.imwrite(os.path.join(output_folder, '{:s}.png'.format(base)), rlt)

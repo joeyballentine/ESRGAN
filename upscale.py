@@ -241,14 +241,14 @@ def upscale(imgs, model_path):
     '''
 
     if model_path != last_model:
-        if model_path.includes(':') or model_path.includes('&'): # interpolating OTF, example: 4xBox:25&4xPSNR:75
+        if ':' in model_path or '&' in model_path: # interpolating OTF, example: 4xBox:25&4xPSNR:75
             interps = model_path.split('&')[:2]
-            model_1 = torch.load(interps[0].split(':')[0])
-            model_2 = torch.load(interps[1].split(':')[0])
+            model_1 = torch.load('./models/' + interps[0].split(':')[0])
+            model_2 = torch.load('./models/' + interps[1].split(':')[0])
             state_dict = OrderedDict()
             for k, v_1 in model_1.items():
                 v_2 = model_2[k]
-                state_dict[k] = (interps[0].split(':')[1]) * v_1 + interps[1].split(':')[1] * v_2
+                state_dict[k] = (int(interps[0].split(':')[1]) / 100) * v_1 + (int(interps[1].split(':')[1]) / 100) * v_2
         else:
             state_dict = torch.load(model_path)
 

@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 import utils.architecture as arch
+import utils.dataops as ops
 
 parser = argparse.ArgumentParser()
 parser.register('type', bool, (lambda x: x.lower()
@@ -18,18 +19,26 @@ parser.add_argument('model')
 parser.add_argument('--input', default='input', help='Input folder')
 parser.add_argument('--output', default='output',
                     help='Output folder')
+parser.add_argument('--reverse', help='Reverse Order', default=False,
+                    action="store_true")
+parser.add_argument('--skip_existing', help='Skip existing output files',
+                    default=False, action="store_true")
 parser.add_argument('--tile_size', default=512,
                     help='Tile size for splitting', type=int)
-parser.add_argument('--seamless', default=False,
-                    help='Seamless upscaling or not', type=bool)
-parser.add_argument('--cpu', default=False,
-                    help='Use CPU instead of CUDA', type=bool)
-parser.add_argument('--binary_alpha', default=False,
-                    help='Whether to use a 1 bit alpha transparency channel, Useful for PSX upscaling', type=bool)
+parser.add_argument('--seamless', action='store_true',
+                    help='Seamless upscaling or not')
+parser.add_argument('--mirror', action='store_true',
+                    help='Mirrored seamless upscaling or not')
+parser.add_argument('--cpu', action='store_true',
+                    help='Use CPU instead of CUDA')
+parser.add_argument('--binary_alpha', action='store_true',
+                    help='Whether to use a 1 bit alpha transparency channel, Useful for PSX upscaling')
 parser.add_argument('--alpha_threshold', default=.5,
                     help='Only used when binary_alpha is supplied. Defines the alpha threshold for binary transparency', type=float)
 parser.add_argument('--alpha_boundary_offset', default=.2,
                     help='Only used when binary_alpha is supplied. Determines the offset boundary from the alpha threshold for half transparency.', type=float)
+parser.add_argument('--alpha_mode', help='Type of alpha processing to use. 1 is BA\'s difference method (this fork\'s default, which is necessary for using the binary alpha settings) and 2 is upscaling the alpha channel separately (like IEU).', 
+                    type=int, nargs='?', choices=[1, 2], default=1)
 args = parser.parse_args()
 
 if '+' in args.model:
@@ -73,131 +82,7 @@ last_scale = None
 last_kind = None
 model = None
 
-def split(img, dim, overlap):
-    '''
-    Creates an array of equal length image chunks to use for upscaling
-
-            Parameters:
-                    img (array): Numpy image array
-                    dim (int): Number to use for length and height of image chunks
-                    overlap (int): The amount of overlap between chunks
-
-            Returns:
-                    imgs (array): Array of numpy image "chunks"
-                    num_horiz (int): Number of horizontal chunks
-                    num_vert (int): Number of vertical chunks
-    '''
-    img_height, img_width = img.shape[:2]
-    num_horiz = math.ceil(img_width / dim)
-    num_vert = math.ceil(img_height / dim)
-    imgs = []
-    for i in range(num_vert):
-        for j in range(num_horiz):
-            tile = img[i * dim:i * dim + dim + overlap,
-                       j * dim:j * dim + dim + overlap].copy()
-            imgs.append(tile)
-    return imgs, num_horiz, num_vert
-
-# This method is a somewhat modified version of BlueAmulet's original pymerge script that is able to use my split chunks
-
-
-def merge(rlts, scale, overlap, img_height, img_width, num_horiz, num_vert):
-    '''
-    Merges the image chunks back together
-
-            Parameters:
-                    rlts (array): The resulting images from ESRGAN
-                    scale (int): The scale of the model that was applied
-                    overlap (int): The amount of overlap between chunks
-                    img_height (int): The height of the original image
-                    img_width (int): The width of the original image
-                    num_horiz (int): Number of horizontal chunks
-                    num_vert (int): Number of vertical chunks
-
-            Returns:
-                    rlt (array): Numpy image array of the resulting merged image
-    '''
-    rlt_overlap = int(overlap * scale)
-
-    rlts_fin = [[None for x in range(num_horiz)]
-                for y in range(num_vert)]
-
-    c = 0
-    for tY in range(num_vert):
-        for tX in range(num_horiz):
-            img = rlts[tY*num_horiz+tX]
-            shape = img.shape
-            c = max(c, shape[2])
-            rlts_fin[tY][tX] = img
-
-    rlt = np.zeros((img_height * scale,
-                    img_width * scale, c))
-
-    for tY in range(num_vert):
-        for tX in range(num_horiz):
-            img = rlts_fin[tY][tX]
-            if img.shape[2] == 3 and c == 4:  # pad with solid alpha channel
-                img = np.dstack((img, np.full(img.shape[:-1], 1.)))
-                rlts_fin[tY][tX] = img
-            shape = img.shape
-            # Fade out edges
-            # Left edge
-            if tX > 0:
-                for x in range(rlt_overlap):
-                    img[:, x] *= ((x + 1)/(rlt_overlap + 1))
-            # Top edge
-            if tY > 0:
-                for y in range(rlt_overlap):
-                    img[y, :] *= ((y + 1)/(rlt_overlap + 1))
-            # Right edge
-            if tX < num_horiz - 1:
-                for x in range(rlt_overlap):
-                    iX = x + shape[1] - rlt_overlap
-                    img[:, iX] *= ((rlt_overlap - x) /
-                                   (rlt_overlap + 1))
-            # Bottom edge
-            if tY < num_vert - 1:
-                for y in range(rlt_overlap):
-                    iY = y + shape[0] - rlt_overlap
-                    img[iY, :] *= ((rlt_overlap - y) /
-                                   (rlt_overlap + 1))
-
-    baseY = 0
-    for tY in range(num_vert):
-        baseX = 0
-        for tX in range(num_horiz):
-            img = rlts_fin[tY][tX]
-            shape = img.shape
-
-            # Copy non overlapping image data
-            x1 = (0 if tX == 0 else rlt_overlap)
-            y1 = (0 if tY == 0 else rlt_overlap)
-            x2 = shape[1]
-            y2 = shape[0]
-            rlt[baseY+y1:baseY+y2, baseX +
-                x1:baseX+x2] = img[y1:y2, x1:x2]
-
-            # Blend left
-            if tX > 0:
-                rlt[baseY+y1:baseY+y2, baseX:baseX +
-                    rlt_overlap] += img[y1:y2, :rlt_overlap]
-
-            # Blend up
-            if tY > 0:
-                rlt[baseY:baseY+rlt_overlap, baseX +
-                    x1:baseX+x2] += img[:rlt_overlap, x1:x2]
-
-            # Blend corner
-            if tX > 0 and tY > 0:
-                rlt[baseY:baseY+rlt_overlap, baseX:baseX +
-                    rlt_overlap] += img[:rlt_overlap, :rlt_overlap]
-
-            baseX += shape[1] - rlt_overlap
-        baseY += shape[0] - rlt_overlap
-    return rlt
-
 # This code is a somewhat modified version of BlueAmulet's fork of ESRGAN by Xinntao
-
 
 def process(img):
     '''
@@ -339,32 +224,40 @@ def upscale(imgs, model_path):
 
         if img.ndim == 3 and img.shape[2] == 4 and last_in_nc == 3 and last_out_nc == 3:
             shape = img.shape
-            img1 = np.copy(img[:, :, :3])
-            img2 = np.copy(img[:, :, :3])
-            for c in range(3):
-                img1[:, :, c] *= img[:, :, 3]
-                img2[:, :, c] = (img2[:, :, c] - 1) * img[:, :, 3] + 1
+            if args.alpha_mode == 1:
+                img1 = np.copy(img[:, :, :3])
+                img2 = np.copy(img[:, :, :3])
+                for c in range(3):
+                    img1[:, :, c] *= img[:, :, 3]
+                    img2[:, :, c] = (img2[:, :, c] - 1) * img[:, :, 3] + 1
 
-            output1 = process(img1)
-            output2 = process(img2)
-            alpha = 1 - np.mean(output2-output1, axis=2)
+                output1 = process(img1)
+                output2 = process(img2)
+                alpha = 1 - np.mean(output2-output1, axis=2)
 
-            if args.binary_alpha:
-                transparent = 0.
-                opaque = 1.
-                half_transparent = .5
-                half_transparent_lower_bound = args.alpha_threshold - args.alpha_boundary_offset
-                half_transparent_upper_bound = args.alpha_threshold + args.alpha_boundary_offset
-                alpha = np.where(alpha < half_transparent_lower_bound, transparent,
-                                 np.where(alpha <= half_transparent_upper_bound,
-                                 half_transparent, opaque))
+                if args.binary_alpha:
+                    transparent = 0.
+                    opaque = 1.
+                    half_transparent = .5
+                    half_transparent_lower_bound = args.alpha_threshold - args.alpha_boundary_offset
+                    half_transparent_upper_bound = args.alpha_threshold + args.alpha_boundary_offset
+                    alpha = np.where(alpha < half_transparent_lower_bound, transparent,
+                                    np.where(alpha <= half_transparent_upper_bound,
+                                    half_transparent, opaque))
 
-            output = np.dstack((output1, alpha))
-            shape = output1.shape
-            divalpha = np.where(alpha < 1. / 510., 1, alpha)
-            for c in range(shape[2]):
-                output[:, :, c] /= divalpha
-            output = np.clip(output, 0, 1)
+                output = np.dstack((output1, alpha))
+                shape = output1.shape
+                divalpha = np.where(alpha < 1. / 510., 1, alpha)
+                for c in range(shape[2]):
+                    output[:, :, c] /= divalpha
+                output = np.clip(output, 0, 1)
+            else:
+                img1 = np.copy(img[:, :, :3])
+                img2 = cv2.merge((img[:, :, 3], img[:, :, 3], img[:, :, 3]))
+                output1 = process(img1)
+                output2 = process(img2)
+                output = cv2.merge(
+                    (output1[:, :, 0], output1[:, :, 1], output1[:, :, 2], output2[:, :, 0])) 
         else:
             if img.ndim == 2:
                 img = np.tile(np.expand_dims(img, axis=2),
@@ -393,6 +286,15 @@ def make_seamless(img):
     img = img[y:y+h, x:x+w]
     return img
 
+def make_mirrored(img):
+    img_height, img_width = img.shape[:2]
+    layer_1 = cv2.hconcat([cv2.flip(img, -1), cv2.flip(img, 0), cv2.flip(img, -1)])
+    layer_2 = cv2.hconcat([cv2.flip(img, 1), img, cv2.flip(img, 1)])
+    img = cv2.vconcat([layer_1, layer_2, layer_1])
+    y, x = img_height - 16, img_width - 16
+    h, w = img_height + 32, img_width + 32
+    img = img[y:y+h, x:x+w]
+    return img
 
 def crop_seamless(img, scale):
     img_height, img_width = img.shape[:2]
@@ -408,7 +310,7 @@ print('Model{:s}: {:s}\nUpscaling...'.format(
 
 images=[]
 for root, _, files in os.walk(input_folder):
-    for file in files:
+    for file in sorted(files, reverse=args.reverse):
         if file.split('.')[-1].lower() in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'tga']:
             images.append(os.path.join(root, file))
 for idx, path in enumerate(images, 1):
@@ -416,6 +318,10 @@ for idx, path in enumerate(images, 1):
     output_dir = os.path.dirname(os.path.join(output_folder, base))
     os.makedirs(output_dir, exist_ok=True)
     print(idx, base)
+    if args.skip_existing and os.path.isfile(
+        os.path.join(output_folder, '{:s}.png'.format(base))):
+      print(" == Already exists, skipping == ")
+      continue
     # read image
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     # img = img * 1. / np.iinfo(img.dtype).max
@@ -423,32 +329,36 @@ for idx, path in enumerate(images, 1):
     for model_path in model_chain:
 
         img_height, img_width = img.shape[:2]
-        dim = args.tile_size
+        dim = min(img_height, img_width, args.tile_size)
         overlap = 16
-
-        while dim > overlap and (img_height % dim < overlap or img_width % dim < overlap):
-            dim -= overlap
 
         do_split = img_height > dim or img_width > dim
 
-        if args.seamless:
+        if args.seamless and not args.mirror:
             img = make_seamless(img)
+            img_height, img_width = img.shape[:2]
+        elif args.mirror:
+            img = make_mirrored(img)
+            img_height, img_width = img.shape[:2]
 
         if do_split:
-            imgs, num_horiz, num_vert = split(
-                img, dim, overlap)
+            tensor_img = ops.np2tensor(img)
+            imgs = ops.patchify_tensor(tensor_img, dim, overlap=overlap)
+            imgs = [ops.tensor2np(img) for img in imgs]
         else:
             imgs = [img]
 
         rlts, scale = upscale(imgs, model_path)
 
         if do_split:
-            rlt = merge(rlts, scale, overlap, img_height,
-                        img_width, num_horiz, num_vert)
+            rlts = [ops.np2tensor(rlt.astype('uint8')) for rlt in rlts]
+            rlts = torch.cat(rlts, 0)
+            rlt_tensor = ops.recompose_tensor(rlts, img_height * scale, img_width * scale, overlap=overlap * scale)
+            rlt = ops.tensor2np(rlt_tensor)
         else:
             rlt = rlts[0]
 
-        if args.seamless:
+        if args.seamless or args.mirror:
             rlt = crop_seamless(rlt, scale)
 
         img = rlt.astype('uint8')

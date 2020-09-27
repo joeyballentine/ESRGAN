@@ -50,6 +50,15 @@ for idx, model in enumerate(model_chain):
         pass
     elif os.path.exists('./models/' + model):
         model_chain[idx] = os.path.join('models', model)
+    elif ':' in model and '&' in model:
+        model_1 = model.split('&')[0].split(':')[0]
+        model_2 = model.split('&')[1].split(':')[1]
+        if os.path.exists(model_1) and os.path.exists(model_2):
+            pass
+        elif os.path.exists('./models/' + model_1) and os.path.exists('./models/' + model_2):
+            model = model.replace(model_1, './models/' + model_1)
+            model = model.replace(model_2, './models/' + model_2)
+            model_chain[idx] = model
     else:
         print('Error: Model [{:s}] does not exist.'.format(model))
         sys.exit(1)
@@ -126,7 +135,7 @@ def upscale(imgs, model_path):
     '''
 
     if model_path != last_model:
-        if ':' in model_path or '&' in model_path: # interpolating OTF, example: 4xBox:25&4xPSNR:75
+        if ':' in model_path and '&' in model_path: # interpolating OTF, example: 4xBox:25&4xPSNR:75
             interps = model_path.split('&')[:2]
             model_1 = torch.load('./models/' + interps[0].split(':')[0])
             model_2 = torch.load('./models/' + interps[1].split(':')[0])

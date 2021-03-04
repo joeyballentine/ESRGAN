@@ -11,7 +11,7 @@ from infrastructure.image_manipulation import generate_upscale_function, make_im
 from infrastructure.arg_handler import get_arguments
 from infrastructure.model_handler import get_model_chain, confirm_and_create_paths, load_model, ModelDetails
 
-# Get arguments from CLI
+# Get arguments from CLI (see arg_handler.py for all cli args)
 args = get_arguments()
 
 # Confirm folders exist and normalize paths

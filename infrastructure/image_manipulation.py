@@ -3,7 +3,6 @@ import os
 import numpy as np
 import torch
 
-# This code is a somewhat modified version of BlueAmulet's fork of ESRGAN by Xinntao
 def create_lr_image(img, is_fp16):
     if img.shape[2] == 3: img = img[:, :, [2, 1, 0]]
     elif img.shape[2] == 4: img = img[:, :, [2, 1, 0, 3]]

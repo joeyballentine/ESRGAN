@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import utils.block as B
+from . import block as B
 
 
 class Get_gradient_nopadding(nn.Module):

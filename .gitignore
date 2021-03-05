@@ -1,4 +1,3 @@
-
-run.bat
-
+*.bat
 .vscode/
+__pycache__/

@@ -14,25 +14,24 @@ import torch
 import typer
 from rich import print
 from rich.logging import RichHandler
-from rich.progress import TaskID  # SpinnerColumn,
-from rich.progress import BarColumn, Progress, TimeRemainingColumn
+from rich.progress import BarColumn, Progress, TaskID, TimeRemainingColumn
 
 import utils.architecture as arch
 import utils.dataops as ops
 
 
 class SeamlessOptions(str, Enum):
-    tile = "tile"
-    mirror = "mirror"
-    replicate = "replicate"
-    alpha_pad = "alpha_pad"
+    TILE = "tile"
+    MIRROR = "mirror"
+    REPLICATE = "replicate"
+    ALPHA_PAD = "alpha_pad"
 
 
 class AlphaOptions(str, Enum):
-    no_alpha = "no_alpha"
-    bas = "bas"
-    alpha_separately = "alpha_separately"
-    swapping = "swapping"
+    NO_ALPHA = "none"
+    BG_DIFFERENCE = "bg_difference"
+    ALPHA_SEPARATELY = "separate"
+    SWAPPING = "swapping"
 
 
 class Upscale:
@@ -191,15 +190,15 @@ class Upscale:
                     img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
                 # Seamless modes
-                if self.seamless == SeamlessOptions.tile:
+                if self.seamless == SeamlessOptions.TILE:
                     img = cv2.copyMakeBorder(img, 16, 16, 16, 16, cv2.BORDER_WRAP)
-                elif self.seamless == SeamlessOptions.mirror:
+                elif self.seamless == SeamlessOptions.MIRROR:
                     img = cv2.copyMakeBorder(
                         img, 16, 16, 16, 16, cv2.BORDER_REFLECT_101
                     )
-                elif self.seamless == SeamlessOptions.replicate:
+                elif self.seamless == SeamlessOptions.REPLICATE:
                     img = cv2.copyMakeBorder(img, 16, 16, 16, 16, cv2.BORDER_REPLICATE)
-                elif self.seamless == SeamlessOptions.alpha_pad:
+                elif self.seamless == SeamlessOptions.ALPHA_PAD:
                     img = cv2.copyMakeBorder(
                         img, 16, 16, 16, 16, cv2.BORDER_CONSTANT, value=[0, 0, 0, 0]
                     )
@@ -342,7 +341,7 @@ class Upscale:
         ):
 
             # Fill alpha with white and with black, remove the difference
-            if self.alpha_mode == AlphaOptions.bas:
+            if self.alpha_mode == AlphaOptions.BG_DIFFERENCE:
                 img1 = np.copy(img[:, :, :3])
                 img2 = np.copy(img[:, :, :3])
                 for c in range(3):
@@ -355,7 +354,7 @@ class Upscale:
                 output = np.dstack((output1, alpha))
                 output = np.clip(output, 0, 1)
             # Upscale the alpha channel itself as its own image
-            elif self.alpha_mode == AlphaOptions.alpha_separately:
+            elif self.alpha_mode == AlphaOptions.ALPHA_SEPARATELY:
                 img1 = np.copy(img[:, :, :3])
                 img2 = cv2.merge((img[:, :, 3], img[:, :, 3], img[:, :, 3]))
                 output1 = self.process(img1)
@@ -369,7 +368,7 @@ class Upscale:
                     )
                 )
             # Use the alpha channel like a regular channel
-            elif self.alpha_mode == AlphaOptions.swapping:
+            elif self.alpha_mode == AlphaOptions.SWAPPING:
                 img1 = cv2.merge((img[:, :, 0], img[:, :, 1], img[:, :, 2]))
                 img2 = cv2.merge((img[:, :, 1], img[:, :, 2], img[:, :, 3]))
                 output1 = self.process(img1)

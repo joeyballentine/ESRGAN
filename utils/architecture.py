@@ -133,6 +133,15 @@ class ESRGAN(nn.Module):
         self.scale = self.get_scale()
         self.num_filters = self.state["model.0.weight"].shape[0]
 
+        # Detect if pixelunshuffle was used (Real-ESRGAN)
+        if self.in_nc in (self.out_nc * 4, self.out_nc * 16) and self.out_nc in (
+            self.in_nc / 4,
+            self.in_nc / 16,
+        ):
+            self.shuffle_factor = int(math.sqrt(self.in_nc / self.out_nc))
+        else:
+            self.shuffle_factor = None
+
         upsample_block = {
             "upconv": B.upconv_block,
             "pixel_shuffle": B.pixelshuffle_block,
@@ -283,13 +292,9 @@ class ESRGAN(nn.Module):
         return max(*nbs) + 1
 
     def forward(self, x):
-        if self.in_nc == 12 and self.out_nc == 3:
-            feat = pixel_unshuffle(x, scale=2)
-        elif self.in_nc == 48 and self.out_nc == 3:
-            feat = pixel_unshuffle(x, scale=4)
-        else:
-            feat = x
-        return self.model(feat)
+        if self.shuffle_factor:
+            x = torch.pixel_unshuffle(x, downscale_factor=self.shuffle_factor)
+        return self.model(x)
 
 
 # older esrgan net

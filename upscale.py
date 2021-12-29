@@ -16,8 +16,10 @@ from rich import print
 from rich.logging import RichHandler
 from rich.progress import BarColumn, Progress, TaskID, TimeRemainingColumn
 
-import utils.architecture as arch
 import utils.dataops as ops
+from utils.architecture.RRDB import RRDBNet as ESRGAN
+from utils.architecture.SPSR import SPSRNet as SPSR
+from utils.architecture.SRVGG import SRVGGNetCompact as RealESRGANv2
 
 
 class SeamlessOptions(str, Enum):
@@ -63,7 +65,7 @@ class Upscale:
     last_nb: int = None
     last_scale: int = None
     last_kind: str = None
-    model: Union[arch.nn.Module, arch.RRDBNet, arch.SPSRNet] = None
+    model: Union[torch.nn.Module, ESRGAN, RealESRGANv2, SPSR] = None
 
     def __init__(
         self,
@@ -308,7 +310,7 @@ class Upscale:
             "params" in state_dict.keys()
             and "body.0.weight" in state_dict["params"].keys()
         ):
-            self.model = arch.SRVGGNetCompact(state_dict)
+            self.model = RealESRGANv2(state_dict)
             self.last_in_nc = self.model.num_in_ch
             self.last_out_nc = self.model.num_out_ch
             self.last_nf = self.model.num_feat
@@ -317,7 +319,7 @@ class Upscale:
             self.last_model = model_path
         # Regular ESRGAN, "new-arch" ESRGAN, Real-ESRGAN v1
         else:
-            self.model = arch.ESRGAN(state_dict)
+            self.model = ESRGAN(state_dict)
             self.last_in_nc = self.model.in_nc
             self.last_out_nc = self.model.out_nc
             self.last_nf = self.model.num_filters

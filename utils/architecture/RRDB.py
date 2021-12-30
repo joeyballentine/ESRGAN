@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import functools
 import math
 import re
 from collections import OrderedDict
@@ -77,10 +78,7 @@ class RRDBNet(nn.Module):
         self.key_arr = list(self.state.keys())
 
         self.in_nc = self.state[self.key_arr[0]].shape[1]
-
-        self.out_nc = (
-            self.get_out_nc() or self.in_nc
-        )  # assume same as in nc if not found
+        self.out_nc = self.state[self.key_arr[-1]].shape[0]
 
         self.scale = self.get_scale()
         self.num_filters = self.state[self.key_arr[0]].shape[0]
@@ -99,9 +97,7 @@ class RRDBNet(nn.Module):
             "pixel_shuffle": B.pixelshuffle_block,
         }.get(self.upsampler)
         if upsample_block is None:
-            raise NotImplementedError(
-                "Upsample mode [%s] is not found" % self.upsampler
-            )
+            raise NotImplementedError(f"Upsample mode [{self.upsampler}] is not found")
 
         if self.scale == 3:
             upsample_blocks = upsample_block(
@@ -205,19 +201,20 @@ class RRDBNet(nn.Module):
                     if new_key in state:
                         old_state[old_key] = state[new_key]
 
-        return old_state
+        # Sort by first numeric value of each layer
+        def compare(item1, item2):
+            parts1 = item1.split(".")
+            parts2 = item2.split(".")
+            int1 = int(parts1[1])
+            int2 = int(parts2[1])
+            return int1 - int2
 
-    def get_out_nc(self) -> Optional[int]:
-        max_part = 0
-        out_nc = None
-        for part in list(self.state):
-            parts = part.split(".")[1:]
-            if len(parts) == 2:
-                part_num = int(parts[0])
-                if part_num > max_part:
-                    max_part = part_num
-                    out_nc = self.state[part].shape[0]
-        return out_nc
+        sorted_keys = sorted(old_state.keys(), key=functools.cmp_to_key(compare))
+
+        # Rebuild the output dict in the right order
+        out_dict = OrderedDict((k, old_state[k]) for k in sorted_keys)
+
+        return out_dict
 
     def get_scale(self, min_part: int = 6) -> int:
         n = 0

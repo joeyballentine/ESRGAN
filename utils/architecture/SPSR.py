@@ -57,18 +57,14 @@ class SPSRNet(nn.Module):
         self.upsampler = upsampler
         self.mode = mode
 
-        self.key_arr = list(self.state.keys())
-
         self.num_blocks = self.get_num_blocks()
 
-        self.self.in_nc = self.state[self.key_arr[0]].shape[1]
-
-        self.out_nc = (
-            self.get_out_nc() or self.self.in_nc
-        )  # assume same as in nc if not found
+        self.in_nc = self.state["model.0.weight"].shape[1]
+        self.out_nc = self.state["f_HR_conv1.0.bias"].shape[0]
 
         self.scale = self.get_scale(4)
-        self.num_filters = self.state[self.key_arr[0]].shape[0]
+        print(self.scale)
+        self.num_filters = self.state["model.0.weight"].shape[0]
 
         n_upscale = int(math.log(self.scale, 2))
         if self.scale == 3:
@@ -101,19 +97,17 @@ class SPSRNet(nn.Module):
         )
 
         if upsampler == "upconv":
-            upsample_block = B.upconv_blcok
+            upsample_block = B.upconv_block
         elif upsampler == "pixelshuffle":
             upsample_block = B.pixelshuffle_block
         else:
-            raise NotImplementedError(
-                "upsample mode [{:s}] is not found".format(upsampler)
-            )
+            raise NotImplementedError(f"upsample mode [{upsampler}] is not found")
         if self.scale == 3:
-            upsampler = upsample_block(
+            a_upsampler = upsample_block(
                 self.num_filters, self.num_filters, 3, act_type=act
             )
         else:
-            upsampler = [
+            a_upsampler = [
                 upsample_block(self.num_filters, self.num_filters, act_type=act)
                 for _ in range(n_upscale)
             ]
@@ -135,7 +129,7 @@ class SPSRNet(nn.Module):
         self.model = B.sequential(
             fea_conv,
             B.ShortcutBlockSPSR(B.sequential(*rb_blocks, LR_conv)),
-            *upsampler,
+            *a_upsampler,
             self.HR_conv0_new,
         )
 
@@ -231,13 +225,11 @@ class SPSRNet(nn.Module):
         )
 
         if upsampler == "upconv":
-            upsample_block = B.upconv_blcok
+            upsample_block = B.upconv_block
         elif upsampler == "pixelshuffle":
             upsample_block = B.pixelshuffle_block
         else:
-            raise NotImplementedError(
-                "upsample mode [{:s}] is not found".format(upsampler)
-            )
+            raise NotImplementedError(f"upsample mode [{upsampler}] is not found")
         if self.scale == 3:
             b_upsampler = upsample_block(
                 self.num_filters, self.num_filters, 3, act_type=act
@@ -302,41 +294,24 @@ class SPSRNet(nn.Module):
 
         self.load_state_dict(self.state, strict=False)
 
-    def get_out_nc(self) -> Optional[int]:
-        max_part = 0
-        out_nc = None
-        for part in list(self.state):
-            parts = part.split(".")[1:]
-            if len(parts) == 2:
-                part_num = int(parts[0])
-                if part_num > max_part:
-                    max_part = part_num
-                    out_nc = self.state[part].shape[0]
-        return out_nc
-
-    def get_scale(self, min_part: int = 6) -> int:
+    def get_scale(self, min_part: int = 4) -> int:
         n = 0
         for part in list(self.state):
-            parts = part.split(".")[1:]
-            if len(parts) == 2:
-                part_num = int(parts[0])
-                if part_num > min_part and parts[1] == "weight":
+            parts = part.split(".")
+            if len(parts) == 3:
+                part_num = int(parts[1])
+                if part_num > min_part and parts[0] == "model" and parts[2] == "weight":
                     n += 1
         return 2 ** n
 
     def get_num_blocks(self) -> int:
-        nbs = []
-        state_keys = self.state_map[r"model.1.sub.\1.RDB\2.conv\3.0.\4"] + (
-            r"model\.\d+\.sub\.(\d+)\.RDB(\d+)\.conv(\d+)\.0\.(weight|bias)",
-        )
-        for state_key in state_keys:
-            for k in self.state:
-                m = re.search(state_key, k)
-                if m:
-                    nbs.append(int(m.group(1)))
-            if nbs:
-                break
-        return max(*nbs) + 1
+        nb = 0
+        for part in list(self.state):
+            parts = part.split(".")
+            n_parts = len(parts)
+            if n_parts == 5 and parts[2] == "sub":
+                nb = int(parts[3])
+        return nb
 
     def forward(self, x):
         x_grad = self.get_g_nopadding(x)

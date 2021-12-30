@@ -73,14 +73,17 @@ class RRDBNet(nn.Module):
         self.plus = any("conv1x1" in k for k in self.state.keys())
 
         self.state: STATE_T = self.new_to_old_arch(self.state)
-        self.in_nc = self.state["model.0.weight"].shape[1]
+
+        self.key_arr = list(self.state.keys())
+
+        self.in_nc = self.state[self.key_arr[0]].shape[1]
 
         self.out_nc = (
             self.get_out_nc() or self.in_nc
         )  # assume same as in nc if not found
 
         self.scale = self.get_scale()
-        self.num_filters = self.state["model.0.weight"].shape[0]
+        self.num_filters = self.state[self.key_arr[0]].shape[0]
 
         # Detect if pixelunshuffle was used (Real-ESRGAN)
         if self.in_nc in (self.out_nc * 4, self.out_nc * 16) and self.out_nc in (

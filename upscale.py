@@ -317,6 +317,15 @@ class Upscale:
             self.last_nb = self.model.num_conv
             self.last_scale = self.model.scale
             self.last_model = model_path
+        # SPSR (ESRGAN with lots of extra layers)
+        elif "f_HR_conv1.0.weight" in state_dict:
+            self.model = SPSR(state_dict)
+            self.last_in_nc = self.model.in_nc
+            self.last_out_nc = self.model.out_nc
+            self.last_nf = self.model.num_filters
+            self.last_nb = self.model.num_blocks
+            self.last_scale = self.model.scale
+            self.last_model = model_path
         # Regular ESRGAN, "new-arch" ESRGAN, Real-ESRGAN v1
         else:
             self.model = ESRGAN(state_dict)

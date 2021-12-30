@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import math
+import re
 from collections import OrderedDict
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -41,61 +43,93 @@ class Get_gradient_nopadding(nn.Module):
 class SPSRNet(nn.Module):
     def __init__(
         self,
-        in_nc,
-        out_nc,
-        nf,
-        nb,
-        gc=32,
-        upscale=4,
-        norm_type=None,
-        act_type="leakyrelu",
-        mode="CNA",
-        upsample_mode="upconv",
+        state_dict: STATE_T,
+        norm=None,
+        act: str = "leakyrelu",
+        upsampler: str = "upconv",
+        mode: str = "CNA",
     ):
         super(SPSRNet, self).__init__()
 
-        n_upscale = int(math.log(upscale, 2))
-        if upscale == 3:
+        self.state = state_dict
+        self.norm = norm
+        self.act = act
+        self.upsampler = upsampler
+        self.mode = mode
+
+        self.key_arr = list(self.state.keys())
+
+        self.num_blocks = self.get_num_blocks()
+
+        self.self.in_nc = self.state[self.key_arr[0]].shape[1]
+
+        self.out_nc = (
+            self.get_out_nc() or self.self.in_nc
+        )  # assume same as in nc if not found
+
+        self.scale = self.get_scale(4)
+        self.num_filters = self.state[self.key_arr[0]].shape[0]
+
+        n_upscale = int(math.log(self.scale, 2))
+        if self.scale == 3:
             n_upscale = 1
 
-        fea_conv = B.conv_block(in_nc, nf, kernel_size=3, norm_type=None, act_type=None)
+        fea_conv = B.conv_block(
+            self.in_nc, self.num_filters, kernel_size=3, norm_type=None, act_type=None
+        )
         rb_blocks = [
             B.RRDB(
-                nf,
+                self.num_filters,
                 kernel_size=3,
                 gc=32,
                 stride=1,
                 bias=True,
                 pad_type="zero",
-                norm_type=norm_type,
-                act_type=act_type,
+                norm_type=norm,
+                act_type=act,
                 mode="CNA",
             )
-            for _ in range(nb)
+            for _ in range(self.num_blocks)
         ]
         LR_conv = B.conv_block(
-            nf, nf, kernel_size=3, norm_type=norm_type, act_type=None, mode=mode
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=norm,
+            act_type=None,
+            mode=mode,
         )
 
-        if upsample_mode == "upconv":
+        if upsampler == "upconv":
             upsample_block = B.upconv_blcok
-        elif upsample_mode == "pixelshuffle":
+        elif upsampler == "pixelshuffle":
             upsample_block = B.pixelshuffle_block
         else:
             raise NotImplementedError(
-                "upsample mode [{:s}] is not found".format(upsample_mode)
+                "upsample mode [{:s}] is not found".format(upsampler)
             )
-        if upscale == 3:
-            upsampler = upsample_block(nf, nf, 3, act_type=act_type)
+        if self.scale == 3:
+            upsampler = upsample_block(
+                self.num_filters, self.num_filters, 3, act_type=act
+            )
         else:
             upsampler = [
-                upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)
+                upsample_block(self.num_filters, self.num_filters, act_type=act)
+                for _ in range(n_upscale)
             ]
         self.HR_conv0_new = B.conv_block(
-            nf, nf, kernel_size=3, norm_type=None, act_type=act_type
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=act,
         )
         self.HR_conv1_new = B.conv_block(
-            nf, nf, kernel_size=3, norm_type=None, act_type=None
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
         )
 
         self.model = B.sequential(
@@ -108,121 +142,201 @@ class SPSRNet(nn.Module):
         self.get_g_nopadding = Get_gradient_nopadding()
 
         self.b_fea_conv = B.conv_block(
-            in_nc, nf, kernel_size=3, norm_type=None, act_type=None
+            self.in_nc, self.num_filters, kernel_size=3, norm_type=None, act_type=None
         )
 
         self.b_concat_1 = B.conv_block(
-            2 * nf, nf, kernel_size=3, norm_type=None, act_type=None
+            2 * self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
         )
         self.b_block_1 = B.RRDB(
-            nf * 2,
+            self.num_filters * 2,
             kernel_size=3,
             gc=32,
             stride=1,
             bias=True,
             pad_type="zero",
-            norm_type=norm_type,
-            act_type=act_type,
+            norm_type=norm,
+            act_type=act,
             mode="CNA",
         )
 
         self.b_concat_2 = B.conv_block(
-            2 * nf, nf, kernel_size=3, norm_type=None, act_type=None
+            2 * self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
         )
         self.b_block_2 = B.RRDB(
-            nf * 2,
+            self.num_filters * 2,
             kernel_size=3,
             gc=32,
             stride=1,
             bias=True,
             pad_type="zero",
-            norm_type=norm_type,
-            act_type=act_type,
+            norm_type=norm,
+            act_type=act,
             mode="CNA",
         )
 
         self.b_concat_3 = B.conv_block(
-            2 * nf, nf, kernel_size=3, norm_type=None, act_type=None
+            2 * self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
         )
         self.b_block_3 = B.RRDB(
-            nf * 2,
+            self.num_filters * 2,
             kernel_size=3,
             gc=32,
             stride=1,
             bias=True,
             pad_type="zero",
-            norm_type=norm_type,
-            act_type=act_type,
+            norm_type=norm,
+            act_type=act,
             mode="CNA",
         )
 
         self.b_concat_4 = B.conv_block(
-            2 * nf, nf, kernel_size=3, norm_type=None, act_type=None
+            2 * self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
         )
         self.b_block_4 = B.RRDB(
-            nf * 2,
+            self.num_filters * 2,
             kernel_size=3,
             gc=32,
             stride=1,
             bias=True,
             pad_type="zero",
-            norm_type=norm_type,
-            act_type=act_type,
+            norm_type=norm,
+            act_type=act,
             mode="CNA",
         )
 
         self.b_LR_conv = B.conv_block(
-            nf, nf, kernel_size=3, norm_type=norm_type, act_type=None, mode=mode
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=norm,
+            act_type=None,
+            mode=mode,
         )
 
-        if upsample_mode == "upconv":
+        if upsampler == "upconv":
             upsample_block = B.upconv_blcok
-        elif upsample_mode == "pixelshuffle":
+        elif upsampler == "pixelshuffle":
             upsample_block = B.pixelshuffle_block
         else:
             raise NotImplementedError(
-                "upsample mode [{:s}] is not found".format(upsample_mode)
+                "upsample mode [{:s}] is not found".format(upsampler)
             )
-        if upscale == 3:
-            b_upsampler = upsample_block(nf, nf, 3, act_type=act_type)
+        if self.scale == 3:
+            b_upsampler = upsample_block(
+                self.num_filters, self.num_filters, 3, act_type=act
+            )
         else:
             b_upsampler = [
-                upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)
+                upsample_block(self.num_filters, self.num_filters, act_type=act)
+                for _ in range(n_upscale)
             ]
 
         b_HR_conv0 = B.conv_block(
-            nf, nf, kernel_size=3, norm_type=None, act_type=act_type
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=act,
         )
-        b_HR_conv1 = B.conv_block(nf, nf, kernel_size=3, norm_type=None, act_type=None)
+        b_HR_conv1 = B.conv_block(
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
+        )
 
         self.b_module = B.sequential(*b_upsampler, b_HR_conv0, b_HR_conv1)
 
         self.conv_w = B.conv_block(
-            nf, out_nc, kernel_size=1, norm_type=None, act_type=None
+            self.num_filters, self.out_nc, kernel_size=1, norm_type=None, act_type=None
         )
 
         self.f_concat = B.conv_block(
-            nf * 2, nf, kernel_size=3, norm_type=None, act_type=None
+            self.num_filters * 2,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=None,
         )
 
         self.f_block = B.RRDB(
-            nf * 2,
+            self.num_filters * 2,
             kernel_size=3,
             gc=32,
             stride=1,
             bias=True,
             pad_type="zero",
-            norm_type=norm_type,
-            act_type=act_type,
+            norm_type=norm,
+            act_type=act,
             mode="CNA",
         )
 
         self.f_HR_conv0 = B.conv_block(
-            nf, nf, kernel_size=3, norm_type=None, act_type=act_type
+            self.num_filters,
+            self.num_filters,
+            kernel_size=3,
+            norm_type=None,
+            act_type=act,
         )
         self.f_HR_conv1 = B.conv_block(
-            nf, out_nc, kernel_size=3, norm_type=None, act_type=None
+            self.num_filters, self.out_nc, kernel_size=3, norm_type=None, act_type=None
         )
+
+        self.load_state_dict(self.state, strict=False)
+
+    def get_out_nc(self) -> Optional[int]:
+        max_part = 0
+        out_nc = None
+        for part in list(self.state):
+            parts = part.split(".")[1:]
+            if len(parts) == 2:
+                part_num = int(parts[0])
+                if part_num > max_part:
+                    max_part = part_num
+                    out_nc = self.state[part].shape[0]
+        return out_nc
+
+    def get_scale(self, min_part: int = 6) -> int:
+        n = 0
+        for part in list(self.state):
+            parts = part.split(".")[1:]
+            if len(parts) == 2:
+                part_num = int(parts[0])
+                if part_num > min_part and parts[1] == "weight":
+                    n += 1
+        return 2 ** n
+
+    def get_num_blocks(self) -> int:
+        nbs = []
+        state_keys = self.state_map[r"model.1.sub.\1.RDB\2.conv\3.0.\4"] + (
+            r"model\.\d+\.sub\.(\d+)\.RDB(\d+)\.conv(\d+)\.0\.(weight|bias)",
+        )
+        for state_key in state_keys:
+            for k in self.state:
+                m = re.search(state_key, k)
+                if m:
+                    nbs.append(int(m.group(1)))
+            if nbs:
+                break
+        return max(*nbs) + 1
 
     def forward(self, x):
         x_grad = self.get_g_nopadding(x)

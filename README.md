@@ -7,7 +7,7 @@ This fork ports features over from my ESRGAN-Bot repository and adds a few more.
 -   Model chaining
 -   Transparency preservation (3 different modes)
 -   1-bit transparency support (with half transparency as well)
--   Variations of the ESRGAN (RRDB) architecture, including normal ESRGAN, ESRGAN+, BSRGAN, RealSR, Real_ESRGAN (SPSR support will come back soon), as well as Real-ESRGANv2 (SRVGG) architecture
+-   Variations of the ESRGAN (RRDB) architecture, including normal ESRGAN, ESRGAN+, BSRGAN, RealSR, SPSR, Real-ESRGAN, as well as Real-ESRGANv2 (SRVGG) architecture
 -   Any scale and most other internal model parameter settings
 -   On-the-fly interpolation
 

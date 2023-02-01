@@ -39,6 +39,14 @@ Examples:
 -   `python upscale.py /models/4xBox.pth`
 -   `python upscale.py "1x_model1.pth@50|1x_model2.pth@50>2x_model3.pth"`
 
+## Dependencies and Installation
+
+Via pip:
+
+```
+pip install --user -r requirements.txt
+```
+
 ## GUIs
 - [chaiNNer](https://github.com/joeyballentine/chaiNNer)
     - My GUI, has all these same features available plus more architecture support. Node based and very customizable. Multiplatform.

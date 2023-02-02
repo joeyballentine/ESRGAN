@@ -187,7 +187,9 @@ class Upscale:
                     progress.advance(task_upscaling)
                     continue
                 # read image
-                img = cv2.imread(str(img_path.absolute()), cv2.IMREAD_UNCHANGED)
+                # We use imdecode instead of imread to work around Unicode breakage on Windows.
+                # See https://jdhao.github.io/2019/09/11/opencv_unicode_image_path/
+                img = cv2.imdecode(np.fromfile(str(img_path.absolute()), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
                 if len(img.shape) < 3:
                     img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
@@ -242,7 +244,12 @@ class Upscale:
                 if self.seamless:
                     rlt = self.crop_seamless(rlt, final_scale)
 
-                cv2.imwrite(str(img_output_path_rel.absolute()), rlt)
+                # We use imencode instead of imwrite to work around Unicode breakage on Windows.
+                # See https://jdhao.github.io/2019/09/11/opencv_unicode_image_path/
+                is_success, im_buf_arr = cv2.imencode(".png", rlt)
+                if not is_success:
+                    raise Exception('cv2.imencode failure')
+                im_buf_arr.tofile(str(img_output_path_rel.absolute()))
 
                 if self.delete_input:
                     img_path.unlink(missing_ok=True)

@@ -156,7 +156,9 @@ class Upscale:
         )
 
         images: List[Path] = []
-        for ext in ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tga"]:
+        # List of extensions: https://docs.opencv.org/4.x/d4/da8/group__imgcodecs.html#ga288b8b3da0892bd651fce07b3bbd3a56
+        # Also gif and tga which seem to be supported as well though are undocumented.
+        for ext in ["bmp", "dib", "jpeg", "jpg", "jpe", "jp2", "png", "webp", "pbm", "pgm", "ppm", "pxm", "pnm", "pfm", "sr", "ras", "tiff", "tif", "exr", "hdr", "pic", "gif", "tga"]:
             images.extend(self.input.glob(f"**/*.{ext}"))
 
         # Store the maximum split depths for each model in the chain

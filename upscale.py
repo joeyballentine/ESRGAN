@@ -96,7 +96,13 @@ class Upscale:
         self.seamless = seamless
         self.cpu = cpu
         self.fp16 = fp16
-        self.device = torch.device("cpu" if self.cpu else f"cuda:{device_id}")
+        if not self.cpu and torch.cuda.is_available():
+            self.device = torch.device(f"cuda:{device_id}")
+        elif not self.cpu and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:  # CPU selected or nothing works
+            self.cpu = True
+            self.device = torch.device("cpu")
         self.cache_max_split_depth = cache_max_split_depth
         self.binary_alpha = binary_alpha
         self.ternary_alpha = ternary_alpha
@@ -105,9 +111,10 @@ class Upscale:
         self.alpha_mode = alpha_mode
         self.log = log
         if self.fp16:
-            torch.set_default_tensor_type(
-                torch.HalfTensor if self.cpu else torch.cuda.HalfTensor
-            )
+            if not self.cpu and torch.cuda.is_available():
+                torch.set_default_tensor_type(torch.cuda.HalfTensor)
+            else:  # CPU selected or nothing works
+                torch.set_default_tensor_type(torch.HalfTensor)
 
     def run(self) -> None:
         model_chain = (

@@ -105,6 +105,7 @@ class Upscale:
         self.alpha_mode = alpha_mode
         self.log = log
         if self.fp16:
+            self.log.warning("Using Half Tensor")
             torch.set_default_tensor_type(
                 torch.HalfTensor if self.cpu else torch.cuda.HalfTensor
             )
@@ -174,7 +175,7 @@ class Upscale:
             for idx, img_path in enumerate(images, 1):
                 img_input_path_rel = img_path.relative_to(self.input)
                 output_dir = self.output.joinpath(img_input_path_rel).parent
-                img_output_path_rel = output_dir.joinpath(f"{img_path.stem}.png")
+                img_output_path_rel = output_dir.joinpath(f"{img_path.stem}{img_path.suffix}")
                 output_dir.mkdir(parents=True, exist_ok=True)
                 if len(model_chain) == 1:
                     self.log.info(

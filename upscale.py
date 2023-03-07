@@ -96,11 +96,15 @@ class Upscale:
         self.seamless = seamless
         self.cpu = cpu
         self.fp16 = fp16
+        self.log = log
         if not self.cpu and torch.cuda.is_available():
+            self.log.info("CUDA device selected")
             self.device = torch.device(f"cuda:{device_id}")
         elif not self.cpu and torch.backends.mps.is_available():
+            self.log.info("MPS device selected")
             self.device = torch.device("mps")
         else:  # CPU selected or nothing works
+            self.log.info("CPU device selected")
             self.cpu = True
             self.device = torch.device("cpu")
         self.cache_max_split_depth = cache_max_split_depth
@@ -109,7 +113,6 @@ class Upscale:
         self.alpha_threshold = alpha_threshold
         self.alpha_boundary_offset = alpha_boundary_offset
         self.alpha_mode = alpha_mode
-        self.log = log
         if self.fp16:
             if not self.cpu and torch.cuda.is_available():
                 torch.set_default_tensor_type(torch.cuda.HalfTensor)

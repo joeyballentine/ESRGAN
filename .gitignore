@@ -143,3 +143,8 @@ cython_debug/
 input/**/*.*
 output/**/*.*
 .vscode/
+
+# Data
+*.png
+*.mp4
+*.prof

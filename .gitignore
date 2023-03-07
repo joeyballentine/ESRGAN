@@ -1,3 +1,13 @@
+# Files
+*.mp4
+*.png
+*.out
+*.prof
+
+# Folders
+input*/
+output*/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -143,8 +153,4 @@ cython_debug/
 input/**/*.*
 output/**/*.*
 .vscode/
-
-# Data
-*.png
-*.mp4
-*.prof
+.idea/
